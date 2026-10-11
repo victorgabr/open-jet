@@ -404,6 +404,7 @@ def recommend_setup_context_window(
     fallback_tokens: int,
     model_refs: Iterable[object],
     total_vram_mb: float | None = None,
+    kv_bytes_multiplier: float = 1.0,
 ) -> int:
     fallback = max(_MIN_CTX, int(fallback_tokens))
     refs = list(model_refs)
@@ -414,6 +415,8 @@ def recommend_setup_context_window(
 
     gguf_path = _model_gguf_path(refs)
     kv_bpt = _kv_bytes_per_token_from_gguf(gguf_path) if gguf_path else None
+    if kv_bpt is not None and kv_bytes_multiplier != 1.0:
+        kv_bpt *= float(kv_bytes_multiplier)
     if kv_bpt is None:
         return fallback
     model_max_context = _max_context_tokens_from_gguf(gguf_path) if gguf_path else None

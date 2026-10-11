@@ -557,13 +557,27 @@ def _recommended_context_for_payload(
                 max_context_tokens=int(payload.get("max_context_tokens") or 0) or None,
                 filename=str(payload.get("model_download_path") or ""),
             )
-    return recommend_setup_context_window(
+    tokens = recommend_setup_context_window(
         runtime="llama_cpp",
         device=device,
         fallback_tokens=fallback_tokens,
         model_refs=_setup_model_refs(payload),
         total_vram_mb=context_vram_mb,
     )
+    from .provisioning import _megakernel_fp16_kv_applies  # late import: provisioning owns the gate
+    model_path = str(payload.get("llama_model") or payload.get("model_download_path") or "")
+    if device == "cuda" and _megakernel_fp16_kv_applies(model_path, context_vram_mb):
+        # The megakernel keeps K/V in fp16; the already-downloaded-model path
+        # needs the same double-bytes-per-token cap as the direct path.
+        tokens = min(tokens, recommend_setup_context_window(
+            runtime="llama_cpp",
+            device=device,
+            fallback_tokens=fallback_tokens,
+            model_refs=_setup_model_refs(payload),
+            total_vram_mb=context_vram_mb,
+            kv_bytes_multiplier=2.0,
+        ))
+    return tokens
 
 
 def _payload_matches_current_model(
