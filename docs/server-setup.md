@@ -75,49 +75,77 @@ megakernel/bench/turing_check          # 12/12 PASS expected on Turing hardware
 
 ## Build and serve the megakernel manually (no wizard)
 
-Normally you never build llama.cpp yourself: `openjet setup` clones it (pinned at
-`b10246`) into `<repo>/llama.cpp` and builds it before the megakernel. Follow this
-section only to skip the wizard entirely, or to link the megakernel against your
-own llama.cpp tree (a fork or different pin). The megakernel is the inference
-engine; llama.cpp provides the model loader and tokenizer it links against
-(`libllama`). Any compiled tree qualifies if it has `include/llama.h` +
-`build/bin/libllama.so`.
+Normally `openjet setup` provisions llama.cpp and the megakernel for you — and
+`scripts/setup_server.sh` does the same headlessly. Follow this section only to
+do it by hand, or to link the megakernel against your own llama.cpp tree (a fork
+or different pin). The megakernel is the inference engine; llama.cpp provides the
+model loader and tokenizer it links against (`libllama`). Any compiled tree
+qualifies if it has `include/llama.h` + `build/bin/libllama.so`. All commands
+run from the open-jet repo root; `models/Qwen3.8-27B-Q4_K_M.gguf` must be in
+place (the wizard or `scripts/setup_server.sh` fetch it).
+
+### 1. Build
 
 ```bash
-# All commands run from the open-jet repo root.
-# 1. llama.cpp with CUDA — skip if <repo>/llama.cpp exists from openjet setup
+# skip if <repo>/llama.cpp already exists from openjet setup
 git clone https://github.com/ggerganov/llama.cpp llama.cpp
 git -C llama.cpp checkout b10246
 cmake -G Ninja -S llama.cpp -B llama.cpp/build -DGGML_CUDA=ON -DCMAKE_BUILD_TYPE=Release
-cmake --build llama.cpp/build
+cmake --build llama.cpp/build --target llama llama-server
 
-# 2. megakernel against that tree, plus the CLI binary — the Makefile already
-#    defaults LLAMA ?= ../llama.cpp, matching the clone above; set LLAMA= elsewhere
-#    only for your own tree
+# the Makefile defaults LLAMA ?= ../llama.cpp, matching the clone above;
+# set LLAMA=/path only for a foreign tree — relink after any swap, never mix
+# qwen38_mk/.so across llama.cpp builds
 make -C megakernel NVCC=$(which nvcc) ARCH=sm_75 libqwen38mk.so qwen38_mk
-ldd megakernel/libqwen38mk.so | grep llama   # must resolve inside llama.cpp/build/bin
+ldd megakernel/libqwen38mk.so | grep llama    # must resolve inside llama.cpp/build/bin
+```
 
-# 3. serve (OpenAI-compatible)
+### 2. Serve — localhost
+
+```bash
 uv run python megakernel/server/mk_server.py \
     -m models/Qwen3.8-27B-Q4_K_M.gguf --host 127.0.0.1 --port 18080 -c 72729 --kv auto
 curl -s http://127.0.0.1:18080/health
-curl -s http://127.0.0.1:18080/v1/chat/completions -H 'content-type: application/json' \
-    -d '{"messages":[{"role":"user","content":"hi"}],"max_tokens":64}'
+```
 
-# 4. or one-shot CLI, no server
+### 3. Serve — local network
+
+```bash
+uv run python megakernel/server/mk_server.py \
+    -m models/Qwen3.8-27B-Q4_K_M.gguf --host 0.0.0.0 --port 18080 -c 72729 --kv auto
+```
+
+- Clients on the LAN use `http://<server-lan-ip>:18080/v1/chat/completions`, or
+  any OpenAI SDK with `base_url="http://<server-lan-ip>:18080/v1"`:
+
+```bash
+curl -s http://<server-lan-ip>:18080/v1/chat/completions -H 'content-type: application/json' \
+    -d '{"messages":[{"role":"user","content":"hi"}],"max_tokens":64}'
+```
+
+- The server has **no auth or TLS**: bind a single interface
+  (`--host 192.168.1.20`) or restrict the port to your subnet:
+  `sudo ufw allow from 192.168.0.0/16 to any port 18080 proto tcp`.
+- Multi-GPU: pin the serving GPU with `CUDA_VISIBLE_DEVICES=<GPU-UUID>`
+  (`nvidia-smi -L`).
+
+### 4. One-shot CLI, no server
+
+```bash
 ./megakernel/qwen38_mk -m models/Qwen3.8-27B-Q4_K_M.gguf -p "Explain KV caches in one line" \
     -n 256 -d 4 --think xhigh --kv auto
 ```
 
-- `--kv auto` falls back to q8_0 (~37 KB/token) when fp16 K/V (~73 KB/token) would
-  not fit; `--kv q8` forces it. Context budget = weights (~16.7 GB) + KV bytes x
-  tokens; 72,729 is the safe 24 GB fp16 number.
+### Notes
+
+- `--kv auto` falls back to q8_0 (~37 KB/token) when fp16 K/V (~73 KB/token)
+  would not fit; `--kv q8` forces it. Context budget = weights (~16.7 GB) +
+  KV bytes x tokens; 72,729 is the safe 24 GB fp16 number.
 - The engine targets exactly `Qwen3.8-27B-Q4_K_M` (filename-matched);
   `draft_vocab_32k.bin` is located automatically, `--lib` overrides the `.so`.
-- To let `openjet chat` reuse a manually built tree instead of rebuilding, write the
-  matching tag: `echo '{"arch": "sm_75"}' > megakernel/.openjet-build.json`.
-- `qwen38_mk` must be relinked whenever you swap `LLAMA=` trees — do not mix binaries
-  across llama.cpp builds.
+- To let `openjet setup`/`openjet chat` reuse a manually built megakernel
+  instead of rebuilding it, write the matching tag:
+  `echo '{"arch": "sm_75"}' > megakernel/.openjet-build.json`.
 
 ## Development loop
 
