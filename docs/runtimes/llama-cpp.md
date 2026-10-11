@@ -25,7 +25,9 @@ There is also an experimental Turing (`sm_75`, including RTX 8000) path with 24 
 CUDA 12.x to compile (CUDA 13 removed `sm_75` compilation support).
 Its short reasoning benchmark measured 54.14 tok/s (`-d 3`) and 53.69 tok/s (`-d 4`) on GPU 3,
 versus llama.cpp MTP 2 at 32.88 tok/s on GPU 2, both Quadro RTX 8000 cards. No Turing KLD or
-long-context validation is claimed; see [Turing build and evidence details](../../megakernel/README.md#turing-rtx-8000).
+long-context quality validation is claimed. Separate warmed fresh-context prefill measurements
+at 2K/4K/8K inputs are documented in
+[Turing build and evidence details](../../megakernel/README.md#turing-rtx-8000).
 
 The following measurements are **RTX 3090 only**, against `llama-server` with OpenJet's flags:
 

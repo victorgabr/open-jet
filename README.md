@@ -19,9 +19,14 @@ CUDA engine at **1.5x the speed of llama.cpp**. On an RTX 3090: 78 tok/s in reas
 The megakernel also has an **experimental Turing (sm_75) path**, including the 48 GB Quadro RTX
 8000. A short reasoning benchmark measured **54.14 tok/s with 3 drafts** and **53.69 tok/s with
 4 drafts**, versus **32.88 tok/s** for llama.cpp with MTP 2 on another RTX 8000. These are
-cross-card, short-generation results, not long-context or accuracy validation. The RTX 3090
+cross-card, short-generation results, not long-context quality or accuracy validation. The RTX 3090
 speedups above do not apply to Turing; see the
 [Turing build notes](megakernel/README.md#turing-rtx-8000).
+
+Fresh-context prefill on the same two RTX 8000 cards measured **731 / 652 / 597 input tok/s**
+at 2K / 4K / 8K inputs, versus llama.cpp's **634 / 593 / 515**. See the
+[prefill methodology and full results](docs/benchmarking.md#fresh-context-prefill-comparison-on-two-gpus)
+for the warmup/cache policy and different timing scopes.
 
 [Discord](https://discord.com/invite/pspKHtExSa)
 
@@ -256,8 +261,9 @@ OpenRouter and Slipstream; local llama.cpp is the default.
 **Does the megakernel work on other GPUs or models?** It serves Qwen3.8-27B Q4_K_M on RTX 30, 40 and
 50-series GPUs with 24 GB or more (sm_86, sm_89, sm_120), plus an experimental Turing path
 (sm_75, including Quadro RTX 8000). It's tuned on an RTX 3090; `openjet setup` builds it
-for the selected GPU. Turing requires CUDA 12.x and has only short-benchmark and smoke-test
-validation so far; see [Turing details](megakernel/README.md#turing-rtx-8000).
+for the selected GPU. Turing requires CUDA 12.x and has short reasoning-decode, 2K/4K/8K prefill
+and smoke-test validation so far, not KLD or long-context quality validation;
+see [Turing details](megakernel/README.md#turing-rtx-8000).
 Other models and unsupported hardware use `llama-server`.
 
 ## Docs

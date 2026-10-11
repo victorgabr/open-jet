@@ -201,15 +201,37 @@ top_p 0.95, top_k 20, min_p 0.0, thinking enabled with xhigh effort. Throughput 
 tokens divided by total decode time, not best-of; the megakernel's first generated token is part of
 prefill and excluded (2,550 timed decode tokens per draft setting versus llama.cpp's 2,560).
 These are short-generation, cross-card measurements, not a long-context accuracy or performance
-guarantee. **No Turing KLD or long-context validation has been performed.** The local llama.cpp
+guarantee. **No Turing KLD or long-context quality validation has been performed.** The local llama.cpp
 binary reported version `0 (unknown)`, so the measured baseline cannot be identified as pinned
 `b10246`. The [sanitized measurement record](../docs/benchmarks/rtx8000-turing.json) publishes
 all 30 timing samples, aggregates and model/binary fingerprints. Full logs and prompts remain in
 ignored machine-local `benchmark_results/` artifacts. Final binaries were rebuilt after comments,
 a compile-time assertion and Makefile check targets were finalized; they passed a subsequent
-model smoke but were not benchmarked again.
+model smoke but were not benchmarked again for reasoning decode. The final rebuilt library was
+used for the separate prefill measurements below.
 
-CUDA 12.4 validation included **57 passing tests**, GPU 3 kernel correctness checks,
+**Warmed, fresh-context prefill**, on the same two cards and original GGUF:
+
+| Actual input tokens | llama.cpp GPU 2 tok/s | megakernel GPU 3 tok/s | Measured-path ratio |
+|---|---:|---:|---:|
+| 2,048 | 634.40 | 730.80 | 1.15x |
+| 4,096 | 593.12 | 652.17 | 1.10x |
+| 8,192 | 514.51 | 597.10 | 1.16x |
+
+Identical raw token IDs, q8 KV, context capacity 16,384, one excluded same-process warmup and
+three timed repetitions per input length. Both evaluate fresh input and produce one token with
+no subsequent decode; prefix-cache reuse is disabled. Throughput is total evaluated input tokens
+divided by total measured seconds, not best-of. The megakernel uses its existing synchronous C API,
+four initial drafts and the 32K draft vocabulary; llama.cpp uses MTP 2.
+
+These are not identical timing scopes or end-to-end HTTP time-to-first-token. The megakernel
+includes ctypes/vector conversion, its final prompt-token step, checkpoint work and initial
+draft setup; llama.cpp reports its native prompt-processing timer. Model loading, reset/slot
+erase and allocation warmups are excluded. See [prefill reproduction and methodology](../docs/benchmarking.md#fresh-context-prefill-comparison-on-two-gpus)
+and the [18-sample prefill record](../docs/benchmarks/rtx8000-turing-prefill.json).
+
+CUDA 12.4 validation included **70 passing focused Python tests** with the prefill harness,
+GPU 3 kernel correctness checks,
 **zero CUDA memcheck errors and zero racecheck hazards** on the recorded kernel checks,
 and coherent full-model CLI generation. These sanitizer checks are not a whole-model guarantee. OpenJet's managed
 client also launched the megakernel and served two coherent chat turns on GPU 3. These checks and
