@@ -28,6 +28,15 @@ uv run python scripts/build_tui.py
 uv run openjet setup
 ```
 
+### Headless (no TUI)
+
+`scripts/setup_server.sh` does everything above without the wizard, idempotently:
+uv env, llama.cpp `b10246` (Ninja/Release, `llama` + `llama-server` targets), the
+model download (resumable plain HTTPS), the megakernel build + build tag linked to
+that checkout, the `turing_check` gate for Turing-class GPUs, then it prints the
+exact `mk_server.py --host 0.0.0.0` start line with the VRAM-safe context computed
+for the machine and the LAN IP.
+
 ## Provisioning (`openjet setup`)
 
 Type `/setup` in the TUI (or `/setup recommended`). In order:
