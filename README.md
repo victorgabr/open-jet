@@ -16,6 +16,13 @@ On NVIDIA **RTX 30, 40 and 50-series GPUs with 24 GB+**, OpenJet serves Qwen3.8-
 CUDA engine at **1.5x the speed of llama.cpp**. On an RTX 3090: 78 tok/s in reasoning mode, up to
 140 tok/s writing code.
 
+The megakernel also has an **experimental Turing (sm_75) path**, including the 48 GB Quadro RTX
+8000. A short reasoning benchmark measured **54.14 tok/s with 3 drafts** and **53.69 tok/s with
+4 drafts**, versus **32.88 tok/s** for llama.cpp with MTP 2 on another RTX 8000. These are
+cross-card, short-generation results, not long-context or accuracy validation. The RTX 3090
+speedups above do not apply to Turing; see the
+[Turing build notes](megakernel/README.md#turing-rtx-8000).
+
 [Discord](https://discord.com/invite/pspKHtExSa)
 
 ## Install
@@ -33,7 +40,7 @@ GGUF, builds or reuses `llama-server`, and sets the context window and GPU offlo
 Recommended: a GPU with 14 GB+ VRAM, or Apple silicon with 24 GB+ unified memory. CPU-only works
 too ([Deployment: CPU-only](docs/deployment/cpu-only.md)).
 
-## RTX 30/40/50-series GPUs: the megakernel
+## Turing and RTX 30/40/50-series GPUs: the megakernel
 
 For Qwen3.8-27B Q4_K_M on an RTX 30, 40 or 50-series GPU with 24 GB or more (sm_86, sm_89, sm_120,
 including the matching RTX workstation cards), OpenJet replaces `llama-server` with
@@ -64,15 +71,22 @@ openjet
 
 You need:
 
-- Linux with an NVIDIA RTX 30, 40 or 50-series GPU that has 24 GB or more
-- the CUDA toolkit, for `nvcc` (CUDA 12 or newer; 12.8 or newer for RTX 50)
+- Linux with a supported NVIDIA GPU that has 24 GB or more: experimental Turing (`sm_75`),
+  or RTX 30/40/50 series (`sm_86`, `sm_89`, `sm_120`)
+- the CUDA toolkit, for `nvcc` (CUDA 12.x for Turing; CUDA 12+ for newer GPUs,
+  12.8+ for RTX 50)
 - the Qwen3.8 27B Q4_K_M model from the setup catalog
+
+For the experimental RTX 8000 path, use a CUDA 12.x toolkit and rebuild for `sm_75`.
+CUDA 13 removed `sm_75` compilation support. Pin the GPU by UUID during setup and runtime;
+see the [Turing build notes](megakernel/README.md#turing-rtx-8000).
 
 Which model file runs on it — `openjet setup` shows the engine in brackets next to each model:
 
 | In setup | Model file |
 |---|---|
 | `(OpenJet megakernel, 1.5x faster)` | unsloth's original Qwen3.8-27B `Q4_K_M`, the one the catalog downloads |
+| `(OpenJet megakernel, experimental Turing)` | the same original `Q4_K_M` on a supported Turing GPU |
 | `(OpenJet megakernel, semi compatible)` | a Qwen3.8-27B `Q4_K_M` from lmstudio-community, mradermacher, Abiray or KikoCis |
 | `(llama.cpp)` | everything else, including other Qwen3.8-27B quants (unsloth `UD-*`, bartowski, GSQ-RCO) |
 
@@ -93,7 +107,7 @@ pgrep -af mk_server.py    # prints a line when the megakernel is serving
 `llama_backend` in `config.yaml` controls this: `auto` (the default) uses the megakernel whenever the
 model and GPU match, `llama` always uses `llama-server`, and `megakernel` fails instead of falling
 back. From a source checkout you can also build it by hand with `cd megakernel && make`. See
-[the llama.cpp runtime docs](docs/runtimes/llama-cpp.md#qwen38-27b-megakernel-backend-rtx-3090).
+[the llama.cpp runtime docs](docs/runtimes/llama-cpp.md#qwen38-27b-megakernel-backend).
 
 ## Tuned to the hardware
 
@@ -240,8 +254,11 @@ running `llama-server` or the megakernel itself.
 OpenRouter and Slipstream; local llama.cpp is the default.
 
 **Does the megakernel work on other GPUs or models?** It serves Qwen3.8-27B Q4_K_M on RTX 30, 40 and
-50-series GPUs with 24 GB or more (sm_86, sm_89, sm_120). It's tuned on an RTX 3090; `openjet setup` builds it
-for whichever of these GPUs you have. Everything else uses `llama-server`.
+50-series GPUs with 24 GB or more (sm_86, sm_89, sm_120), plus an experimental Turing path
+(sm_75, including Quadro RTX 8000). It's tuned on an RTX 3090; `openjet setup` builds it
+for the selected GPU. Turing requires CUDA 12.x and has only short-benchmark and smoke-test
+validation so far; see [Turing details](megakernel/README.md#turing-rtx-8000).
+Other models and unsupported hardware use `llama-server`.
 
 ## Docs
 

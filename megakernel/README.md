@@ -1,9 +1,13 @@
-# Qwen3.8-27B megakernel (RTX 30/40/50 series)
+# Qwen3.8-27B megakernel (Turing and RTX 30/40/50 series)
 
 A specialised CUDA inference engine for `Qwen3.8-27B-Q4_K_M.gguf` (llama.cpp arch `qwen35`:
 48 Gated-DeltaNet + 16 gated-attention layers, one MTP block) on RTX 30, 40 and 50-series GPUs
 with 24 GB+ (sm_86, sm_89, sm_120; tuned and benchmarked on an RTX 3090), with an OpenAI-compatible server that open-jet uses in place of `llama-server`
 (`llama_backend: auto`, see [docs/runtimes/llama-cpp.md](../docs/runtimes/llama-cpp.md)).
+
+An experimental `sm_75` path targets Turing GPUs with 24 GB+, including the Quadro RTX 8000.
+The [Results](#results) section is RTX 3090-only; see [Turing (RTX 8000)](#turing-rtx-8000)
+for the separate short-benchmark results and their limitations.
 
 ## Quick guide
 
@@ -131,7 +135,7 @@ between `-d` settings.
 
 ## Build / run
 
-Requires CUDA 12+ (12.8+ for RTX 50 series; built with 13.2), an sm_86, sm_89 or sm_120 GPU with 24 GB, and the repo's llama.cpp build (only
+Requires CUDA 12+ (12.x for Turing; 12.8+ for RTX 50 series), an sm_75, sm_86, sm_89 or sm_120 GPU with 24 GB, and the repo's llama.cpp build (only
 `libllama`, for tokenization, loaded vocab-only). `openjet setup` builds `libqwen38mk.so` automatically
 (this source ships in the open-jet wheel); building by hand:
 
@@ -152,6 +156,85 @@ divergence, perplexity and agreement against a reference file, see Correctness),
 (per-phase timing, including a "min-composed" estimate that filters out time-slicing by other GPU
 users), `MK_PF_PROFILE=1` (per-kernel prefill timing), `MK_PREFILL=mk` (prefill through the decode
 megakernel instead).
+
+### Turing (RTX 8000)
+
+Use **CUDA 12.x**: CUDA 13 removed compilation support for `sm_75`. Build with the explicit
+architecture rather than inheriting the first GPU's architecture on a multi-GPU machine:
+
+```sh
+cd megakernel
+make NVCC=/usr/local/cuda-12.8/bin/nvcc ARCH=sm_75 LLAMA=/path/to/llama.cpp
+export MK_GPU_UUID="GPU-REPLACE-WITH-FULL-UUID"
+CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES="$MK_GPU_UUID" ./qwen38_mk \
+    -m /path/to/Qwen3.8-27B-Q4_K_M.gguf -p "Write quicksort in C" -n 256 -d 4
+```
+
+Replace the toolkit and llama.cpp paths with your installations and `MK_GPU_UUID` with the
+selected GPU's full UUID from `nvidia-smi -L`. Prefer UUIDs over numeric indexes to avoid
+CUDA/NVIDIA device-order differences. Pin OpenJet's
+setup and runtime the same way so compilation and inference use the same GPU:
+
+```sh
+PATH=/usr/local/cuda-12.8/bin:$PATH CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES="$MK_GPU_UUID" openjet setup
+CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES="$MK_GPU_UUID" openjet
+```
+
+Setup labels this path **experimental Turing**, without the RTX 3090's speedup claim. Hardware
+validation remains necessary for other deployments. Use `llama_backend: megakernel` when
+validating, so a failed launch cannot silently benchmark llama.cpp instead; restore `auto` for
+normal fallback behavior. If `nvidia-smi`/NVML discovery fails but CUDA is usable, OpenJet tries
+CUDA driver discovery, respecting device visibility.
+
+Measured on two Quadro RTX 8000 cards, UUID-pinned to GPU 3 for the megakernel and GPU 2 for llama.cpp:
+
+| Reasoning decode | GPU | tok/s | versus llama.cpp |
+|---|---|---|---|
+| llama.cpp, MTP 2 | 2 | 32.88 | baseline |
+| megakernel, 3 drafts | 3 | 54.14 | 1.65x |
+| megakernel, 4 drafts | 3 | 53.69 | 1.63x |
+
+Both used the same original unsloth Q4_K_M GGUF (revision
+`566347e99d832d31f6245a577198d10d5bdd389e`), q8 KV, 16,384-token context capacity, five identical
+prompts, two seeds per prompt (1000 and 1001) and up to 256 generated tokens. Temperature 1.0,
+top_p 0.95, top_k 20, min_p 0.0, thinking enabled with xhigh effort. Throughput is total timed decode
+tokens divided by total decode time, not best-of; the megakernel's first generated token is part of
+prefill and excluded (2,550 timed decode tokens per draft setting versus llama.cpp's 2,560).
+These are short-generation, cross-card measurements, not a long-context accuracy or performance
+guarantee. **No Turing KLD or long-context validation has been performed.** The local llama.cpp
+binary reported version `0 (unknown)`, so the measured baseline cannot be identified as pinned
+`b10246`. The [sanitized measurement record](../docs/benchmarks/rtx8000-turing.json) publishes
+all 30 timing samples, aggregates and model/binary fingerprints. Full logs and prompts remain in
+ignored machine-local `benchmark_results/` artifacts. Final binaries were rebuilt after comments,
+a compile-time assertion and Makefile check targets were finalized; they passed a subsequent
+model smoke but were not benchmarked again.
+
+CUDA 12.4 validation included **57 passing tests**, GPU 3 kernel correctness checks,
+**zero CUDA memcheck errors and zero racecheck hazards** on the recorded kernel checks,
+and coherent full-model CLI generation. These sanitizer checks are not a whole-model guarantee. OpenJet's managed
+client also launched the megakernel and served two coherent chat turns on GPU 3. These checks and
+smokes do not establish model-quality equivalence. To repeat the matched reasoning benchmark
+from the repository root (return there with `cd ..` if following the build above):
+
+```sh
+export LLAMA_GPU_UUID="GPU-REPLACE-WITH-BASELINE-FULL-UUID"
+python megakernel/bench/think_bench.py \
+    --model models/Qwen3.8-27B-Q4_K_M.gguf \
+    --llama-server /path/to/llama.cpp/build/bin/llama-server \
+    --megakernel megakernel/qwen38_mk \
+    --llama-gpu "$LLAMA_GPU_UUID" --megakernel-gpu "$MK_GPU_UUID" \
+    --kv q8 --context 16384 --seeds 2 -n 256 --output rtx8000-repeat.json
+```
+
+Model-free regression checks can be built with `make ARCH=sm_75 bench/turing_check bench/mmq_bench`
+(supply `NVCC` and `LLAMA` as above), then run on the pinned GPU:
+
+```sh
+CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES="$MK_GPU_UUID" megakernel/bench/turing_check
+CUDA_DEVICE_ORDER=PCI_BUS_ID CUDA_VISIBLE_DEVICES="$MK_GPU_UUID" megakernel/bench/mmq_bench 65 --check-only
+```
+
+Build the check targets inside `megakernel/`; the run commands above are from the repository root.
 
 ### The GGUF
 
@@ -265,7 +348,8 @@ processing the whole conversation as one fresh prompt.
 
 - Specialised to this model's shapes and quant mix (27B, Q4_K_M as published by unsloth, see
   [The GGUF](#the-gguf)), plus a plain `llama-quantize` Q4_K_M; the loader rejects any other model or mix. Tuned on sm_86 (RTX 3090); open-jet enables it on sm_86, sm_89 and sm_120
-  GPUs with 24 GB or more. `make` builds for the installed GPU (`make ARCH=sm_89` to override).
+  GPUs with 24 GB or more, plus experimental sm_75 with only the short-benchmark and smoke-test
+  validation above. `make` builds for the installed GPU (`make ARCH=sm_75` or `sm_89` to override).
 - Sampling supports temperature, top-k (<= 32), top-p and min-p (llama.cpp's order); no presence /
   repetition penalties yet (open-jet's non-thinking preset uses a presence penalty of 1.5).
 - Text only; one sequence and one checkpoint: a conversation is reused while it grows (or diverges
