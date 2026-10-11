@@ -545,13 +545,17 @@ def _recommended_context_for_payload(
                 model_size_mb = resident_mb
                 break
         if model_size_mb > 0 and kv_bytes_per_token > 0:
-            return recommend_context_window_for_model(
+            from .provisioning import (  # late import: provisioning owns megakernel-aware sizing
+                _context_tokens_for_setup,
+            )
+            return _context_tokens_for_setup(
                 device=device,
+                vram_mb=context_vram_mb,
                 fallback_tokens=fallback_tokens,
                 model_size_mb=model_size_mb,
                 kv_bytes_per_token=kv_bytes_per_token,
-                model_max_context=int(payload.get("max_context_tokens") or 0) or None,
-                total_vram_mb=context_vram_mb,
+                max_context_tokens=int(payload.get("max_context_tokens") or 0) or None,
+                filename=str(payload.get("model_download_path") or ""),
             )
     return recommend_setup_context_window(
         runtime="llama_cpp",

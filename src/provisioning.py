@@ -223,24 +223,15 @@ def _context_window_for_model(
     elif hardware_info.has_metal:
         device = "metal"
     if has_gpu and vram_mb > 0 and model_size_mb > 0 and kv_bytes_per_token > 0:
-        common = dict(
+        return _context_tokens_for_setup(
             device=device,
+            vram_mb=vram_mb,
             fallback_tokens=fallback_tokens,
             model_size_mb=model_size_mb,
-            model_max_context=max_context_tokens,
-            total_vram_mb=vram_mb,
+            kv_bytes_per_token=kv_bytes_per_token,
+            max_context_tokens=max_context_tokens,
+            filename=filename,
         )
-        tokens = recommend_context_window_for_model(
-            kv_bytes_per_token=kv_bytes_per_token, **common
-        )
-        if device == "cuda" and filename and _megakernel_fp16_kv_applies(filename, vram_mb):
-            # The megakernel keeps K/V in fp16 (2 bytes/element) instead of
-            # llama.cpp's q8_0, so its auto-selected runtime gets a context
-            # sized against double the KV bytes per token.
-            tokens = min(tokens, recommend_context_window_for_model(
-                kv_bytes_per_token=kv_bytes_per_token * 2.0, **common
-            ))
-        return tokens
     return fallback_tokens
 
 
@@ -251,6 +242,35 @@ def _megakernel_fp16_kv_applies(filename: str, vram_mb: float) -> bool:
         _megakernel_model_supported,
     )
     return vram_mb >= _MEGAKERNEL_MIN_VRAM_MIB and _megakernel_model_supported(filename)
+
+
+def _context_tokens_for_setup(
+    *,
+    device: str,
+    vram_mb: float,
+    fallback_tokens: int,
+    model_size_mb: float,
+    kv_bytes_per_token: float,
+    max_context_tokens: int | None,
+    filename: str,
+) -> int:
+    """Profile context that fits real VRAM for whichever runtime setup picks."""
+    common = dict(
+        device=device,
+        fallback_tokens=fallback_tokens,
+        model_size_mb=model_size_mb,
+        model_max_context=max_context_tokens,
+        total_vram_mb=vram_mb,
+    )
+    tokens = recommend_context_window_for_model(kv_bytes_per_token=kv_bytes_per_token, **common)
+    if device == "cuda" and filename and _megakernel_fp16_kv_applies(filename, vram_mb):
+        # The megakernel keeps K/V in fp16 (2 bytes/element) instead of
+        # llama.cpp's q8_0, so the auto-selected runtime must size against
+        # double the KV bytes per token.
+        tokens = min(tokens, recommend_context_window_for_model(
+            kv_bytes_per_token=kv_bytes_per_token * 2.0, **common
+        ))
+    return tokens
 
 
 def _is_moe_catalog_row(row: Mapping[str, object]) -> bool:
