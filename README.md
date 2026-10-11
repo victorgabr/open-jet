@@ -45,6 +45,9 @@ GGUF, builds or reuses `llama-server`, and sets the context window and GPU offlo
 Recommended: a GPU with 14 GB+ VRAM, or Apple silicon with 24 GB+ unified memory. CPU-only works
 too ([Deployment: CPU-only](docs/deployment/cpu-only.md)).
 
+Running the server from a source checkout — including a fork branch with the experimental Turing
+megakernel — uses the uv workflow: [Server Setup](docs/server-setup.md).
+
 ## Turing and RTX 30/40/50-series GPUs: the megakernel
 
 For Qwen3.8-27B Q4_K_M on an RTX 30, 40 or 50-series GPU with 24 GB or more (sm_86, sm_89, sm_120,

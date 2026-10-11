@@ -3,7 +3,7 @@ name = "open-jet"
 version = "0.4.33"
 description = "Self-hosted local AI coding agent for Ollama, LM Studio, and llama.cpp, with hardware-aware model provisioning and a Python SDK for on-device LLMs."
 readme = { file = "README.pypi.md", content-type = "text/markdown" }
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 authors = [
     { name = "Louis" }
 ]
@@ -52,9 +52,8 @@ classifiers = [
     "Operating System :: POSIX :: Linux",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
-    "Programming Language :: Python :: 3.10",
-    "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: Software Development :: User Interfaces",
@@ -94,6 +93,11 @@ Issues = "https://github.com/l-forster/open-jet/issues"
 [project.scripts]
 open-jet = "src.cli:main"
 openjet = "src.cli:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]
 
 [build-system]
 requires = ["setuptools>=77,<81", "wheel"]
