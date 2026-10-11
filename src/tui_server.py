@@ -23,6 +23,7 @@ REQUEST_TYPES = {
     "status",
     "resize",
     "shutdown",
+    "confirm",
 }
 
 
@@ -33,8 +34,12 @@ class ProtocolError(ControllerError):
 class ProtocolServer:
     def __init__(self, *, force_setup: bool = False) -> None:
         self._write_lock = asyncio.Lock()
-        self.controller = OpenJetServiceController(self.emit, force_setup=force_setup)
+        self.controller = OpenJetServiceController(self.emit, confirm=self.confirm, force_setup=force_setup)
         self._running = True
+        self._exit_code = 0
+        self._confirm_waiters: dict[str, asyncio.Future[bool]] = {}
+        self._confirm_seq = 0
+        self._inflight: set[asyncio.Task] = set()
 
     async def emit(self, event_type: str, fields: dict[str, Any] | None = None) -> None:
         message = {"protocolVersion": PROTOCOL_VERSION, "type": event_type, **(fields or {})}
@@ -48,6 +53,18 @@ class ProtocolServer:
         if request_id:
             fields["requestId"] = request_id
         await self.emit("error", fields)
+
+    async def confirm(self, question: str) -> bool:
+        """Ask the frontend a yes/no question and wait for its `confirm` answer."""
+        self._confirm_seq += 1
+        waiter_id = f"confirm-{self._confirm_seq}"
+        future: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
+        self._confirm_waiters[waiter_id] = future
+        try:
+            await self.emit("confirm_request", {"id": waiter_id, "text": question})
+            return await future
+        finally:
+            self._confirm_waiters.pop(waiter_id, None)
 
     async def handle(self, message: dict[str, Any]) -> None:
         request_type = str(message.get("type", ""))
@@ -109,13 +126,18 @@ class ProtocolServer:
         elif request_type == "resize":
             self.controller.resize(int(message.get("width", 80)), int(message.get("height", 24)))
             await self.emit("status_update", {"requestId": request_id, "payload": {"resized": True}})
+        elif request_type == "confirm":
+            target = str(message.get("requestId", "")).strip()
+            waiter = self._confirm_waiters.get(target)
+            if waiter is None or waiter.done():
+                raise ControllerError(f"No pending confirmation for request id: {target or '<missing>'}")
+            waiter.set_result(bool(message.get("approved")))
         elif request_type == "shutdown":
             await self.controller.close()
             await self.emit("status_update", {"requestId": request_id, "payload": {"shutdown": True}})
             self._running = False
 
     async def run(self) -> int:
-        exit_code = 0
         while self._running:
             line = await asyncio.to_thread(sys.stdin.readline)
             if not line:
@@ -126,20 +148,33 @@ class ProtocolServer:
                 if not isinstance(value, dict):
                     raise ProtocolError("Protocol message must be a JSON object.")
                 request_id = str(value.get("id", "")).strip() or None
-                await self.handle(value)
             except (ProtocolError, json.JSONDecodeError) as exc:
                 await self.error(str(exc), request_id=request_id, fatal=True)
-                exit_code = 2
-                break
-            except (ControllerError, ValueError, TypeError) as exc:
-                await self.error(str(exc), request_id=request_id)
-            except Exception as exc:
-                print(f"OpenJet backend failure: {exc}", file=sys.stderr, flush=True)
-                await self.error(str(exc) or type(exc).__name__, request_id=request_id, fatal=True)
-                exit_code = 1
-                break
+                return 2
+            # Requests are dispatched concurrently: a command such as /setup can
+            # await a frontend `confirm` answer that arrives through this same
+            # stdin loop, so inline handling would deadlock. Correlation stays
+            # per-message via request ids.
+            task = asyncio.create_task(self._dispatch(value, request_id))
+            self._inflight.add(task)
+            task.add_done_callback(self._inflight.discard)
         await self.controller.close()
-        return exit_code
+        return self._exit_code
+
+    async def _dispatch(self, message: dict[str, Any], request_id: str | None) -> None:
+        try:
+            await self.handle(message)
+        except ProtocolError as exc:
+            await self.error(str(exc), request_id=request_id, fatal=True)
+            self._exit_code = 2
+            self._running = False
+        except (ControllerError, ValueError, TypeError) as exc:
+            await self.error(str(exc), request_id=request_id)
+        except Exception as exc:
+            print(f"OpenJet backend failure: {exc}", file=sys.stderr, flush=True)
+            await self.error(str(exc) or type(exc).__name__, request_id=request_id, fatal=True)
+            self._exit_code = 1
+            self._running = False
 
 
 def main(argv: list[str] | None = None) -> int:

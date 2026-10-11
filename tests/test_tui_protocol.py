@@ -136,6 +136,35 @@ class ProtocolServerTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(self.controller.agent_traces, [payload])
 
+    async def test_confirm_request_round_trips_answer_to_waiter(self) -> None:
+        task = asyncio.create_task(self.server.confirm("download 16.4 GB?"))
+        await asyncio.sleep(0)
+        questions = [fields for event_type, fields in self.events if event_type == "confirm_request"]
+        self.assertEqual(len(questions), 1)
+        self.assertEqual(questions[0]["text"], "download 16.4 GB?")
+        await self.server.handle(
+            {
+                "protocolVersion": PROTOCOL_VERSION,
+                "type": "confirm",
+                "id": "c-1",
+                "requestId": questions[0]["id"],
+                "approved": True,
+            }
+        )
+        self.assertTrue(await task)
+
+    async def test_confirm_answer_without_pending_question_is_rejected(self) -> None:
+        with self.assertRaises(ServiceError):
+            await self.server.handle(
+                {
+                    "protocolVersion": PROTOCOL_VERSION,
+                    "type": "confirm",
+                    "id": "c-2",
+                    "requestId": "confirm-nope",
+                    "approved": True,
+                }
+            )
+
 
 class ProtocolEncodingTests(unittest.TestCase):
     def test_schema_is_valid_json_and_pins_v1(self) -> None:
@@ -143,7 +172,7 @@ class ProtocolEncodingTests(unittest.TestCase):
             schema = json.load(handle)
         self.assertEqual(schema["properties"]["protocolVersion"]["const"], PROTOCOL_VERSION)
         self.assertNotIn("approval_decision", schema["properties"]["type"]["enum"])
-        self.assertEqual(schema["x-requestTypes"], ["initialize", "command", "tool_execute", "generation_metrics", "agent_trace", "status", "resize", "shutdown"])
+        self.assertEqual(schema["x-requestTypes"], ["initialize", "command", "tool_execute", "generation_metrics", "agent_trace", "status", "resize", "shutdown", "confirm"])
         self.assertEqual(set(schema["x-requestTypes"]), REQUEST_TYPES)
 
 
@@ -210,6 +239,64 @@ class ServiceControllerTests(unittest.IsolatedAsyncioTestCase):
         )
         client.start.assert_awaited_once()
         self.assertIs(self.controller.runtime_client, client)
+
+    async def test_setup_recommended_asks_before_large_download(self) -> None:
+        payload = {
+            "model_source": "direct",
+            "model_download_path": "/tmp/openjet-setup-models/Qwen3.8-27B-Q4_K_M.gguf",
+            "model_size_mb": 16_880.0,
+            "model_profile_name": "qwen3.8-27b-q4",
+        }
+        self.controller.confirm = AsyncMock(return_value=False)
+        with patch("src.service_controller.detect_hardware_info"), patch(
+            "src.service_controller.build_recommended_payload", return_value=payload
+        ), patch("src.service_controller.provision_setup_artifacts", AsyncMock()) as provision:
+            result = await self.controller.command("/setup")
+        question = self.controller.confirm.await_args.args[0]
+        self.assertIn("Qwen3.8-27B-Q4_K_M.gguf", question)
+        self.assertIn("16.5 GB", question)
+        self.assertIn("/tmp/openjet-setup-models", question)
+        self.assertIn("cancelled", result["text"].lower())
+        provision.assert_not_awaited()
+        self.assertTrue(result["payload"]["setupRequired"])
+
+    async def test_setup_recommended_streams_download_status_after_approval(self) -> None:
+        payload = {
+            "model_source": "direct",
+            "model_download_path": "/tmp/openjet-setup-models/Qwen3.8-27B-Q4_K_M.gguf",
+            "model_size_mb": 16_880.0,
+        }
+        self.controller.confirm = AsyncMock(return_value=True)
+        captured: dict = {}
+
+        async def fake_provision(setup_result, *, hardware_info, log, set_status, clear_status):
+            captured["set_status"] = set_status
+            return {**setup_result, "llama_model": "/tmp/openjet-setup-models/Qwen3.8-27B-Q4_K_M.gguf"}
+
+        with patch("src.service_controller.detect_hardware_info"), patch(
+            "src.service_controller.build_recommended_payload", return_value=payload
+        ), patch("src.service_controller.provision_setup_artifacts", fake_provision), patch.object(
+            OpenJetServiceController, "_prepare_runtime", AsyncMock()
+        ), patch("src.service_controller.sync_active_model_profile"):
+            result = await self.controller.command("/setup")
+
+        self.controller.confirm.assert_awaited_once()
+        set_status = captured["set_status"]
+        set_status("downloading Qwen3.8-27B-Q4_K_M.gguf: 52%")
+        set_status("downloading Qwen3.8-27B-Q4_K_M.gguf: 52%")
+        await asyncio.sleep(0)
+        await asyncio.sleep(0)
+        status_texts = [
+            call.args[1]["text"]
+            for call in self.controller.emit.await_args_list
+            if len(call.args) >= 2 and call.args[0] == "status_update"
+        ]
+        self.assertEqual(
+            status_texts.count("downloading Qwen3.8-27B-Q4_K_M.gguf: 52%"),
+            1,
+            "provisioning progress must reach the TUI footer, deduplicated",
+        )
+        self.assertIn("setup complete", result["text"].lower())
 
     async def test_model_attribution_is_forwarded_to_session_trace(self) -> None:
         logger = SimpleNamespace(record_agent_trace=Mock())
