@@ -12,7 +12,7 @@ environment (`.venv`), one interpreter pin (`.python-version` = **3.12**;
 - `nvcc` on `PATH` — CUDA 12.x or 13.x (CUDA 13 supports Turing through Grace
   Blackwell; `nvcc 13.3` verified on a TITAN RTX, see
   [`docs/benchmarks/titan-rtx-sm75-investigation.md`](benchmarks/titan-rtx-sm75-investigation.md))
-- `git`, `make`, `cmake`
+- `git`, `make`, `cmake`, `ninja`
 - [uv](https://docs.astral.sh/uv/) — it installs the Python 3.12 interpreter itself
 - `bun` — builds the TypeScript TUI (`scripts/build_tui.py`); only needed for the
   interactive UI, the CLI paths work without it
@@ -35,8 +35,9 @@ Type `/setup` in the TUI (or `/setup recommended`). In order:
 1. **Consent gate** — asks before the ~17 GB model download (skipped when the
    `.gguf` is already in `models/`); progress streams in the footer while it works.
 2. **llama.cpp** — clones `ggerganov/llama.cpp` into `<repo>/llama.cpp` pinned to
-   **`b10246`** and builds it with `GGML_CUDA=ON` (~15–25 min; this is the slow
-   step, cached afterwards via the checkout's build tag).
+   **`b10246`** and builds it `GGML_CUDA=ON` in `Release` (CMake's default build
+   type; ~15–25 min — this is the slow step, cached afterwards via the checkout's
+   build tag).
 3. **Megakernel** — `nvcc` is probed from `PATH`; builds `megakernel/libqwen38mk.so`
    for your GPU's arch (`sm_75` on Turing) against that checkout, tagging the
    result in `megakernel/.openjet-build.json`.
@@ -73,7 +74,7 @@ has `include/llama.h` + `build/bin/libllama.so`.
 # 1. llama.cpp with CUDA (any tree; b10246 is openjet's pin)
 git clone https://github.com/ggerganov/llama.cpp && cd llama.cpp
 git checkout b10246
-cmake -B build -DGGML_CUDA=ON && cmake --build build -j
+cmake -G Ninja -B build -DGGML_CUDA=ON -DCMAKE_BUILD_TYPE=Release && cmake --build build
 
 # 2. megakernel against that tree, plus the CLI binary
 cd <open-jet>
