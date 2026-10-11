@@ -66,12 +66,16 @@ megakernel/bench/turing_check          # 12/12 PASS expected on Turing hardware
 
 ## Build and serve the megakernel manually (no wizard)
 
-The megakernel is the inference engine; llama.cpp provides the model loader and
-tokenizer it links against (`libllama`). Any compiled llama.cpp tree qualifies if it
-has `include/llama.h` + `build/bin/libllama.so`.
+Normally you never build llama.cpp yourself: `openjet setup` clones it (pinned at
+`b10246`) into `<repo>/llama.cpp` and builds it before the megakernel. Follow this
+section only to skip the wizard entirely, or to link the megakernel against your
+own llama.cpp tree (a fork or different pin). The megakernel is the inference
+engine; llama.cpp provides the model loader and tokenizer it links against
+(`libllama`). Any compiled tree qualifies if it has `include/llama.h` +
+`build/bin/libllama.so`.
 
 ```bash
-# 1. llama.cpp with CUDA (any tree; b10246 is openjet's pin)
+# 1. llama.cpp with CUDA — skip if <repo>/llama.cpp exists from openjet setup
 git clone https://github.com/ggerganov/llama.cpp && cd llama.cpp
 git checkout b10246
 cmake -G Ninja -B build -DGGML_CUDA=ON -DCMAKE_BUILD_TYPE=Release && cmake --build build
