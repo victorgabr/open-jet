@@ -70,6 +70,7 @@ let queuedPrompt: { text: string; imagePaths: string[]; status: Text } | undefin
 let piInitialization: Promise<void> | undefined;
 let setupRequired: boolean | undefined;
 let pendingConfirm: { id: string } | undefined;
+let footerProgress: string | undefined;
 let generationChunks: Array<{ text: string; timestampMs: number }> = [];
 let generationFlushTimer: ReturnType<typeof setTimeout> | undefined;
 let activeAgentMode: AgentMode = "local";
@@ -668,10 +669,11 @@ function handleMessage(message: ProtocolMessage): void {
       }
       break;
     case "state_snapshot":
-      updateFooter(payload, turnActive ? undefined : "ready");
+      updateFooter(payload, turnActive ? undefined : footerProgress ?? "ready");
       break;
     case "notification":
       if (message.text) addNotice(message.text, (payload.level as "info" | "warning" | "error") ?? "info");
+      footerProgress = undefined;
       if (payload && typeof payload === "object") updateFooter(payload, turnActive ? "working…" : "ready");
       if (payload.openCloudPicker === true) {
         void configureOpenRouterModel();
@@ -715,6 +717,7 @@ function handleMessage(message: ProtocolMessage): void {
         editor.disableSubmit = Boolean(queuedPrompt);
         if (!queuedPrompt) updateFooter({}, "ready");
       } else if (message.text !== undefined) {
+        footerProgress = message.text || undefined;
         updateFooter({}, message.text || "working…");
       }
       break;
