@@ -75,15 +75,18 @@ engine; llama.cpp provides the model loader and tokenizer it links against
 `build/bin/libllama.so`.
 
 ```bash
+# All commands run from the open-jet repo root.
 # 1. llama.cpp with CUDA — skip if <repo>/llama.cpp exists from openjet setup
-git clone https://github.com/ggerganov/llama.cpp && cd llama.cpp
-git checkout b10246
-cmake -G Ninja -B build -DGGML_CUDA=ON -DCMAKE_BUILD_TYPE=Release && cmake --build build
+git clone https://github.com/ggerganov/llama.cpp llama.cpp
+git -C llama.cpp checkout b10246
+cmake -G Ninja -S llama.cpp -B llama.cpp/build -DGGML_CUDA=ON -DCMAKE_BUILD_TYPE=Release
+cmake --build llama.cpp/build
 
-# 2. megakernel against that tree, plus the CLI binary
-cd <open-jet>
-make -C megakernel NVCC=$(which nvcc) ARCH=sm_75 LLAMA=/path/to/llama.cpp libqwen38mk.so qwen38_mk
-ldd megakernel/libqwen38mk.so | grep llama   # must resolve inside $LLAMA/build/bin
+# 2. megakernel against that tree, plus the CLI binary — the Makefile already
+#    defaults LLAMA ?= ../llama.cpp, matching the clone above; set LLAMA= elsewhere
+#    only for your own tree
+make -C megakernel NVCC=$(which nvcc) ARCH=sm_75 libqwen38mk.so qwen38_mk
+ldd megakernel/libqwen38mk.so | grep llama   # must resolve inside llama.cpp/build/bin
 
 # 3. serve (OpenAI-compatible)
 uv run python megakernel/server/mk_server.py \
@@ -113,8 +116,9 @@ curl -s http://127.0.0.1:18080/v1/chat/completions -H 'content-type: application
 uv run python -m pytest tests -q       # dev group carries pytest; no extra flags
 ```
 
-Protocol/schema changes: `cd ui && npm run generate:protocol` regenerates
-`ui/src/protocol.generated.ts` from `protocol/openjet-tui-v1.schema.json`.
+Protocol/schema changes: `npm --prefix ui run generate:protocol` (from the repo
+root) regenerates `ui/src/protocol.generated.ts` from
+`protocol/openjet-tui-v1.schema.json`.
 
 ## Gotchas
 
