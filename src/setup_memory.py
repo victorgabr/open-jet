@@ -12,6 +12,12 @@ from typing import Iterable
 
 from .runtime_limits import read_memory_snapshot
 
+
+# VRAM the GPU runtime spends on compute buffers, the CUDA context, and other
+# processes' steady-state allocations before any KV cache exists. The 10%
+# reserve inside _max_tokens_for_memory alone leaves 24 GB cards OOMing on the
+# first compute-buffer allocation.
+_GPU_RUNTIME_RESERVE_MB = 2560.0
 _MIN_CTX = 1024
 
 # GGUF metadata value type codes.
@@ -379,8 +385,11 @@ def recommend_context_window_for_model(
         )
 
     if total_vram_mb is not None and total_vram_mb > 0 and dev in {"cuda", "vulkan", "rocm", "metal"}:
+        headroom_mb = total_vram_mb - model_size_mb
+        if dev in {"cuda", "vulkan", "rocm"}:
+            headroom_mb -= _GPU_RUNTIME_RESERVE_MB
         return _max_tokens_for_memory(
-            total_vram_mb - model_size_mb,
+            headroom_mb,
             kv_bytes_per_token,
             max_context_tokens=effective_model_max_context,
         )

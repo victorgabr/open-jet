@@ -144,9 +144,8 @@ class SetupMemoryTests(unittest.TestCase):
                 self.assertEqual(_amd_free_vram_mb(), 5120.0)
 
     def test_recommend_uses_gguf_kv_cost(self) -> None:
-        # 24576 total - 15360 model = 9216 MB remaining
-        # Hold back 10% reserve -> 8294.4 MiB usable
-        # 8294.4 * 1024 * 1024 / 69632 = 124903
+        # 24576 vram - 15360 model - 2560 GPU runtime reserve = 6656,
+        # 10% reserve -> 5990.4 MiB -> 5990.4 * 1024 * 1024 / 69632 = 90208
         with patch("src.setup_memory._model_file_size_mb", return_value=15360.0), \
              patch("src.setup_memory._model_gguf_path", return_value=Path("/fake.gguf")), \
              patch("src.setup_memory._kv_bytes_per_token_from_gguf", return_value=69632), \
@@ -158,7 +157,7 @@ class SetupMemoryTests(unittest.TestCase):
                 model_refs=["/models/Qwen3.5-9B-Q4_K_M.gguf"],
                 total_vram_mb=24576.0,
             )
-        self.assertEqual(recommended, 124903)
+        self.assertEqual(recommended, 90208)
 
     def test_recommend_clamps_to_model_max_context(self) -> None:
         with patch("src.setup_memory._model_file_size_mb", return_value=15360.0), \
