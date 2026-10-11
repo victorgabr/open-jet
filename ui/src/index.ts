@@ -69,6 +69,7 @@ let activeImagePaths: string[] = [];
 let queuedPrompt: { text: string; imagePaths: string[]; status: Text } | undefined;
 let piInitialization: Promise<void> | undefined;
 let setupRequired: boolean | undefined;
+let pendingConfirm: { id: string } | undefined;
 let generationChunks: Array<{ text: string; timestampMs: number }> = [];
 let generationFlushTimer: ReturnType<typeof setTimeout> | undefined;
 let activeAgentMode: AgentMode = "local";
@@ -661,7 +662,7 @@ function handleMessage(message: ProtocolMessage): void {
           queuedPrompt = undefined;
           editor.disableSubmit = false;
         }
-        addNotice("No model is configured. Run /setup recommended to provision the hardware-aware default.", "warning");
+        addNotice("No model is configured. Run /setup recommended to provision the hardware-aware default; it asks before downloading anything.", "warning");
       } else {
         void initializePi(payload);
       }
@@ -695,6 +696,13 @@ function handleMessage(message: ProtocolMessage): void {
         );
       }
       if (payload.exit) void shutdown(0);
+      break;
+    case "confirm_request":
+      if (message.id) {
+        pendingConfirm = { id: message.id };
+        addNotice(`${message.text ?? "OpenJet needs your approval."} Answer y or n.`, "warning");
+        updateFooter({}, "awaiting setup answer…");
+      }
       break;
     case "status_update":
       if (payload.turnActive === true) {
@@ -803,6 +811,19 @@ async function applyResume(path: string): Promise<void> {
 editor.onSubmit = (value) => {
   const text = value.trim();
   if (!text || turnActive) return;
+  if (pendingConfirm) {
+    const answer = text.toLowerCase();
+    if (answer === "y" || answer === "yes" || answer === "n" || answer === "no") {
+      const approved = answer.startsWith("y");
+      rpc.request("confirm", { requestId: pendingConfirm.id, approved });
+      editor.addToHistory(answer);
+      pendingConfirm = undefined;
+      if (approved) addNotice("Approved; setup continues and will show download progress.");
+    } else {
+      addNotice("Answer y to continue or n to cancel.", "warning");
+    }
+    return;
+  }
   if (backendCommandsLoaded && isUnknownSlashCommand(text, serviceCommands)) {
     const token = text.slice(1).split(/\s+/, 1)[0] || "";
     editor.addToHistory(text);

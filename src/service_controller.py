@@ -26,7 +26,7 @@ from .openrouter_catalog import (
     openrouter_picker_models,
     upsert_openrouter_profile,
 )
-from .provisioning import provision_setup_artifacts
+from .provisioning import _fmt_mb_size, provision_setup_artifacts
 from .runtime_registry import CODEX_RUNTIME, DEFAULT_RUNTIME, LITELLM_RUNTIME, active_model_ref, active_runtime, create_runtime_client
 from .runtime_protocol import ToolCall
 from .runtime_limits import estimate_tokens, read_memory_snapshot
@@ -93,8 +93,9 @@ class _SetupLog:
 class OpenJetServiceController:
     """Own hardware/runtime services while Pi owns turns, tools, and sessions."""
 
-    def __init__(self, emit, *, force_setup: bool = False, root: Path | None = None) -> None:
+    def __init__(self, emit, *, confirm=None, force_setup: bool = False, root: Path | None = None) -> None:
         self.emit = emit
+        self.confirm = confirm
         self.force_setup = force_setup
         self.root = Path(root or Path.cwd()).resolve()
         self.cfg = load_config()
@@ -111,6 +112,8 @@ class OpenJetServiceController:
         self._decode_tokens = 0
         self._last_generation_tps: float | None = None
         self._session_logger: SessionLogger | None = None
+        self._status_tasks: set[asyncio.Task] = set()
+        self._last_status_text: str | None = None
 
     @property
     def configured(self) -> bool:
@@ -364,13 +367,16 @@ class OpenJetServiceController:
                 {"text": "checking local llama.cpp runtime…", "payload": {"runtimeStarting": True}},
             )
             hardware_info = detect_hardware_info()
+            question = self._download_plan_text(self.cfg)
+            if question is not None and self.confirm is not None and not await self.confirm(question):
+                raise ServiceError("The model download was declined; the local runtime cannot start without it.")
             log = _SetupLog()
             resolved = await provision_setup_artifacts(
                 dict(self.cfg),
                 hardware_info=hardware_info,
                 log=log,
-                set_status=lambda _text: None,
-                clear_status=lambda: None,
+                set_status=self._emit_status,
+                clear_status=lambda: self._emit_status(""),
             )
             for key in (
                 "device",
@@ -677,21 +683,44 @@ class OpenJetServiceController:
             "contextContent": result.context_content,
         }
 
-    async def _recommended_setup(self) -> dict[str, Any]:
-        await self.emit("status_update", {"text": "provisioning recommended OpenJet setup…"})
-        hardware_info = detect_hardware_info()
-        setup_result = build_recommended_payload(
-            hardware_info=hardware_info,
-            recommended_ctx=recommended_context_window_tokens(),
-            current_cfg=self.cfg,
+    def _emit_status(self, text: object) -> None:
+        """Mirror provisioning progress into the TUI footer; provisioning calls this synchronously."""
+        normalized = " ".join(str(text or "").split())
+        if normalized == self._last_status_text:
+            return
+        self._last_status_text = normalized
+        task = asyncio.create_task(self.emit("status_update", {"text": normalized}))
+        self._status_tasks.add(task)
+        task.add_done_callback(self._status_tasks.discard)
+
+    @staticmethod
+    def _download_plan_text(setup_result: dict[str, Any]) -> str | None:
+        """Describe a pending large model download, or None when nothing large is needed."""
+        if str(setup_result.get("model_source") or "") != "direct":
+            return None
+        target_raw = str(setup_result.get("model_download_path") or "").strip()
+        if not target_raw or Path(target_raw).is_file():
+            return None
+        try:
+            size_mb = float(setup_result.get("model_size_mb") or 0.0)
+        except (TypeError, ValueError):
+            size_mb = 0.0
+        if size_mb < 100.0:
+            return None
+        return (
+            f"Setup will download {Path(target_raw).name} ({_fmt_mb_size(size_mb)}) into {Path(target_raw).parent}. "
+            "That is a large file and may take a long time. Download it now?"
         )
+
+    async def _recommended_setup(self, setup_result: dict[str, Any], hardware_info: Any) -> dict[str, Any]:
+        await self.emit("status_update", {"text": "provisioning recommended OpenJet setup…"})
         log = _SetupLog()
         setup_result = await provision_setup_artifacts(
             dict(setup_result),
             hardware_info=hardware_info,
             log=log,
-            set_status=lambda text: None,
-            clear_status=lambda: None,
+            set_status=self._emit_status,
+            clear_status=lambda: self._emit_status(""),
         )
         profile_name = str(setup_result.pop("model_profile_name", "")).strip() or None
         setup_result.pop("system_prompt", None)
@@ -718,7 +747,20 @@ class OpenJetServiceController:
             mode = argument.strip().lower() or "recommended"
             if mode != "recommended":
                 raise ServiceError("The Pi migration currently supports /setup recommended; use the Python setup command for guided/manual setup.")
-            snapshot = await self._recommended_setup()
+            hardware_info = detect_hardware_info()
+            setup_result = build_recommended_payload(
+                hardware_info=hardware_info,
+                recommended_ctx=recommended_context_window_tokens(),
+                current_cfg=self.cfg,
+            )
+            question = self._download_plan_text(setup_result)
+            if question is not None and self.confirm is not None and not await self.confirm(question):
+                self._emit_status("")
+                return {
+                    "text": "Setup cancelled; nothing was downloaded.",
+                    "payload": self._snapshot(setup_required=True),
+                }
+            snapshot = await self._recommended_setup(setup_result, hardware_info)
             return {"text": "OpenJet setup complete. Pi is ready.", "payload": snapshot}
         if command in {"mode", "agent", "strategy"}:
             mode = argument.strip().lower() or "status"
