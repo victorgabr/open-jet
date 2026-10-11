@@ -63,6 +63,45 @@ make -C megakernel NVCC=$(which nvcc) ARCH=sm_75 bench/turing_check
 megakernel/bench/turing_check          # 12/12 PASS expected on Turing hardware
 ```
 
+## Build and serve the megakernel manually (no wizard)
+
+The megakernel is the inference engine; llama.cpp provides the model loader and
+tokenizer it links against (`libllama`). Any compiled llama.cpp tree qualifies if it
+has `include/llama.h` + `build/bin/libllama.so`.
+
+```bash
+# 1. llama.cpp with CUDA (any tree; b10246 is openjet's pin)
+git clone https://github.com/ggerganov/llama.cpp && cd llama.cpp
+git checkout b10246
+cmake -B build -DGGML_CUDA=ON && cmake --build build -j
+
+# 2. megakernel against that tree, plus the CLI binary
+cd <open-jet>
+make -C megakernel NVCC=$(which nvcc) ARCH=sm_75 LLAMA=/path/to/llama.cpp libqwen38mk.so qwen38_mk
+ldd megakernel/libqwen38mk.so | grep llama   # must resolve inside $LLAMA/build/bin
+
+# 3. serve (OpenAI-compatible)
+uv run python megakernel/server/mk_server.py \
+    -m models/Qwen3.8-27B-Q4_K_M.gguf --host 127.0.0.1 --port 18080 -c 72729 --kv auto
+curl -s http://127.0.0.1:18080/health
+curl -s http://127.0.0.1:18080/v1/chat/completions -H 'content-type: application/json' \
+    -d '{"messages":[{"role":"user","content":"hi"}],"max_tokens":64}'
+
+# 4. or one-shot CLI, no server
+./megakernel/qwen38_mk -m models/Qwen3.8-27B-Q4_K_M.gguf -p "Explain KV caches in one line" \
+    -n 256 -d 4 --think xhigh --kv auto
+```
+
+- `--kv auto` falls back to q8_0 (~37 KB/token) when fp16 K/V (~73 KB/token) would
+  not fit; `--kv q8` forces it. Context budget = weights (~16.7 GB) + KV bytes x
+  tokens; 72,729 is the safe 24 GB fp16 number.
+- The engine targets exactly `Qwen3.8-27B-Q4_K_M` (filename-matched);
+  `draft_vocab_32k.bin` is located automatically, `--lib` overrides the `.so`.
+- To let `openjet chat` reuse a manually built tree instead of rebuilding, write the
+  matching tag: `echo '{"arch": "sm_75"}' > megakernel/.openjet-build.json`.
+- `qwen38_mk` must be relinked whenever you swap `LLAMA=` trees — do not mix binaries
+  across llama.cpp builds.
+
 ## Development loop
 
 ```bash
