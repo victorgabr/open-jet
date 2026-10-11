@@ -9,9 +9,8 @@ environment (`.venv`), one interpreter pin (`.python-version` = **3.12**;
 ## Prerequisites
 
 - Linux (x86-64), NVIDIA driver for your GPU
-- `nvcc` on `PATH` — **CUDA 12.x or 13.x**; CUDA 13 keeps Turing through
-  Grace Blackwell, the "Turing needs CUDA 12.x" claim is wrong (verified with
-  `nvcc 13.3` on a TITAN RTX, see
+- `nvcc` on `PATH` — CUDA 12.x or 13.x (CUDA 13 supports Turing through Grace
+  Blackwell; `nvcc 13.3` verified on a TITAN RTX, see
   [`docs/benchmarks/titan-rtx-sm75-investigation.md`](benchmarks/titan-rtx-sm75-investigation.md))
 - `git`, `make`, `cmake`
 - [uv](https://docs.astral.sh/uv/) — it installs the Python 3.12 interpreter itself
