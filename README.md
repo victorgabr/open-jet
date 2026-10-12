@@ -50,8 +50,8 @@ megakernel — uses the uv workflow: [Server Setup](docs/server-setup.md).
 
 ## Turing and RTX 30/40/50-series GPUs: the megakernel
 
-For Qwen3.8-27B Q4_K_M on an RTX 30, 40 or 50-series GPU with 24 GB or more (sm_86, sm_89, sm_120,
-including the matching RTX workstation cards), OpenJet replaces `llama-server` with
+For Qwen3.8-27B Q4_K_M on an RTX 30, 40 or 50-series GPU or an A100/A30 with 24 GB or more
+(sm_80, sm_86, sm_89, sm_120, including the matching RTX workstation cards), OpenJet replaces `llama-server` with
 [`megakernel/`](megakernel/README.md), a CUDA engine written for that one model. Benchmarks below are
 from an RTX 3090. Each
 decode step runs as a single persistent kernel launch and verifies 4-5 drafted tokens per pass.
@@ -80,7 +80,7 @@ openjet
 You need:
 
 - Linux with a supported NVIDIA GPU that has 24 GB or more: experimental Turing (`sm_75`),
-  or RTX 30/40/50 series (`sm_86`, `sm_89`, `sm_120`)
+  RTX 30/40/50 series (`sm_86`, `sm_89`, `sm_120`), or A100/A30-class Ampere (`sm_80`, enabled but not yet benchmarked)
 - the CUDA toolkit, for `nvcc` (CUDA 12.x for Turing; CUDA 12+ for newer GPUs,
   12.8+ for RTX 50)
 - the Qwen3.8 27B Q4_K_M model from the setup catalog
@@ -262,7 +262,7 @@ running `llama-server` or the megakernel itself.
 OpenRouter and Slipstream; local llama.cpp is the default.
 
 **Does the megakernel work on other GPUs or models?** It serves Qwen3.8-27B Q4_K_M on RTX 30, 40 and
-50-series GPUs with 24 GB or more (sm_86, sm_89, sm_120), plus an experimental Turing path
+50-series GPUs and A100/A30 cards with 24 GB or more (sm_80, sm_86, sm_89, sm_120), plus an experimental Turing path
 (sm_75, including Quadro RTX 8000). It's tuned on an RTX 3090; `openjet setup` builds it
 for the selected GPU. Turing requires CUDA 12.x and has short reasoning-decode, 2K/4K/8K prefill
 and smoke-test validation so far, not KLD or long-context quality validation;

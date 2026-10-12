@@ -53,7 +53,9 @@ class MegakernelSelectionTests(unittest.TestCase):
     def test_unsupported_gpu_is_reported(self) -> None:
         with mock.patch.object(llama_server, "_megakernel_dir", return_value=ROOT), \
                 mock.patch.object(llama_server, "_megakernel_gpu", return_value=None):
-            self.assertIn("RTX 30/40/50", megakernel_unavailable_reason(MODEL))
+            reason = megakernel_unavailable_reason(MODEL)
+            self.assertIn("compute capabilities", reason)
+            self.assertIn(str(llama_server._MEGAKERNEL_MIN_VRAM_MIB), reason)
 
     def test_supported_setup_has_no_reason(self) -> None:
         with mock.patch.object(llama_server, "_megakernel_dir", return_value=ROOT), \
@@ -101,6 +103,11 @@ class MegakernelGpuDetectionTests(unittest.TestCase):
             with _nvidia_smi(f"0, GPU-aaa, {cap}, {mem}"), \
                     mock.patch.dict(llama_server.os.environ, {}, clear=True):
                 self.assertEqual(llama_server._megakernel_gpu(), "0")
+
+    def test_a100_40gb_qualifies(self) -> None:
+        with _nvidia_smi("0, GPU-aaa, 8.0, 40960"), \
+                mock.patch.dict(llama_server.os.environ, {}, clear=True):
+            self.assertEqual(llama_server._megakernel_gpu(), "0")
 
     def test_rtx_8000_can_be_pinned_without_selecting_another_gpu(self) -> None:
         lines = ("2, GPU-baseline, 8.6, 24576", "3, GPU-turing, 7.5, 49152")

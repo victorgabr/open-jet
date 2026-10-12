@@ -177,7 +177,7 @@ llama_backend: auto   # auto | megakernel | llama
 
 With the `llama_cpp` runtime, `auto` (the default) serves Qwen3.8-27B Q4_K_M through the
 megakernel (a CUDA engine specialised for that model on experimental Turing sm_75 and
-RTX 30/40/50-series sm_86, sm_89 and sm_120 GPUs) when it is built (`make` in `megakernel/`), the GPU
+RTX 30/40/50-series sm_86, sm_89, sm_120 and A100-class sm_80 GPUs) when it is built (`make` in `megakernel/`), the GPU
 has at least 23,000 MiB of VRAM and `jinja2` is installed; otherwise, or if it fails to start, OpenJet runs
 `llama-server` as before. `megakernel` requires it (startup fails instead of falling back), `llama`
 never uses it. The megakernel samples with temperature, top_k (at most 32), top_p and min_p; it

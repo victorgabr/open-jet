@@ -42,13 +42,15 @@ _MTP_SPEC_ARGS: tuple[str, ...] = (
 
 
 # The Qwen3.8-27B megakernel (<openjet>/megakernel): a specialised CUDA engine for this one model and
-# quantisation on Turing and RTX 30/40/50-series GPUs with 24 GB (sm_75, sm_86, sm_89, sm_120) with an OpenAI-compatible
+# quantisation on Turing, RTX 30/40/50-series and A100-class GPUs with 24 GB (sm_75, sm_80, sm_86, sm_89, sm_120) with an OpenAI-compatible
 # server in front of it.
 _MEGAKERNEL_SERVER = Path("server") / "mk_server.py"
 _MEGAKERNEL_FILES = ("libqwen38mk.so", "draft_vocab_32k.bin", str(_MEGAKERNEL_SERVER))
 _MEGAKERNEL_MIN_VRAM_MIB = 23000
-# Turing (RTX 6000/8000), Ampere, Ada and Blackwell.
-_MEGAKERNEL_COMPUTE_CAPS = frozenset({"7.5", "8.6", "8.9", "12.0"})
+# Turing (RTX 6000/8000), Ampere (RTX 30 and A100/A30), Ada and Blackwell. The
+# CUDA code branches only at __CUDA_ARCH__ >= 800, so sm_80 takes the same
+# fast path as sm_86/sm_89; sm_80 is enabled but not yet benchmarked.
+_MEGAKERNEL_COMPUTE_CAPS = frozenset({"7.5", "8.0", "8.6", "8.9", "12.0"})
 
 
 def _megakernel_root() -> Path:
@@ -244,7 +246,9 @@ def megakernel_unavailable_reason(model: str) -> str | None:
     if importlib.util.find_spec("jinja2") is None:
         return "the megakernel server needs jinja2"
     if _megakernel_gpu() is None:
-        return (f"the megakernel needs a Turing or RTX 30/40/50-series GPU (sm_75, sm_86, sm_89 or sm_120) "
+        caps = ", ".join(f"sm_{c.replace('.', '')}"
+                         for c in sorted(_MEGAKERNEL_COMPUTE_CAPS, key=float))
+        return (f"the megakernel needs one of these GPU compute capabilities ({caps}) "
                 f"with >= {_MEGAKERNEL_MIN_VRAM_MIB} MiB")
     return None
 

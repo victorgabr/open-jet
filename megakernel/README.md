@@ -1,8 +1,8 @@
 # Qwen3.8-27B megakernel (Turing and RTX 30/40/50 series)
 
 A specialised CUDA inference engine for `Qwen3.8-27B-Q4_K_M.gguf` (llama.cpp arch `qwen35`:
-48 Gated-DeltaNet + 16 gated-attention layers, one MTP block) on RTX 30, 40 and 50-series GPUs
-with 24 GB+ (sm_86, sm_89, sm_120; tuned and benchmarked on an RTX 3090), with an OpenAI-compatible server that open-jet uses in place of `llama-server`
+48 Gated-DeltaNet + 16 gated-attention layers, one MTP block) on RTX 30, 40 and 50-series and A100/A30 GPUs
+with 24 GB+ (sm_80, sm_86, sm_89, sm_120; tuned and benchmarked on an RTX 3090; sm_80 enabled but not yet benchmarked), with an OpenAI-compatible server that open-jet uses in place of `llama-server`
 (`llama_backend: auto`, see [docs/runtimes/llama-cpp.md](../docs/runtimes/llama-cpp.md)).
 
 An experimental `sm_75` path targets Turing GPUs with 24 GB+, including the Quadro RTX 8000.
@@ -135,7 +135,7 @@ between `-d` settings.
 
 ## Build / run
 
-Requires CUDA 12+ (12.x for Turing; 12.8+ for RTX 50 series), an sm_75, sm_86, sm_89 or sm_120 GPU with 24 GB, and the repo's llama.cpp build (only
+Requires CUDA 12+ (12.x for Turing; 12.8+ for RTX 50 series), an sm_75, sm_80, sm_86, sm_89 or sm_120 GPU with 24 GB, and the repo's llama.cpp build (only
 `libllama`, for tokenization, loaded vocab-only). `openjet setup` builds `libqwen38mk.so` automatically
 (this source ships in the open-jet wheel); building by hand:
 
@@ -369,8 +369,8 @@ processing the whole conversation as one fresh prompt.
 ## Limitations
 
 - Specialised to this model's shapes and quant mix (27B, Q4_K_M as published by unsloth, see
-  [The GGUF](#the-gguf)), plus a plain `llama-quantize` Q4_K_M; the loader rejects any other model or mix. Tuned on sm_86 (RTX 3090); open-jet enables it on sm_86, sm_89 and sm_120
-  GPUs with 24 GB or more, plus experimental sm_75 with only the short-benchmark and smoke-test
+  [The GGUF](#the-gguf)), plus a plain `llama-quantize` Q4_K_M; the loader rejects any other model or mix. Tuned on sm_86 (RTX 3090); open-jet enables it on sm_80, sm_86, sm_89 and sm_120 GPUs with 24 GB or more (sm_80 not yet benchmarked),
+  plus experimental sm_75 with only the short-benchmark and smoke-test
   validation above. `make` builds for the installed GPU (`make ARCH=sm_75` or `sm_89` to override).
 - Sampling supports temperature, top-k (<= 32), top-p and min-p (llama.cpp's order); no presence /
   repetition penalties yet (open-jet's non-thinking preset uses a presence penalty of 1.5).
