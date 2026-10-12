@@ -46,19 +46,27 @@ fi
 PATH="$(dirname "$NVCC"):$PATH"; export PATH
 command -v uv >/dev/null || die "uv not found; install it: https://docs.astral.sh/uv/"
 
-# GPU arch: derive from nvidia-smi compute capability (megakernel-supported set).
-CAP=$(nvidia-smi --query-gpu=compute_cap --format=csv,noheader,nounits | head -1 | tr -d '[:space:]')
-case "$CAP" in
-    7.5)  ARCH=sm_75  ;;
-    8.6)  ARCH=sm_86  ;;
-    8.9)  ARCH=sm_89  ;;
-    12.0) ARCH=sm_120 ;;
-    *) die "compute capability $CAP has no megakernel path (need 7.5/8.6/8.9/12.0, 24 GB+ VRAM)" ;;
-esac
-echo "==> GPU compute capability $CAP -> ARCH=$ARCH"
 
 step "Python environment (uv, pinned 3.12)"
 uv sync
+
+# GPU arch: query the repo's own support set (src/llama_server.py
+# _MEGAKERNEL_COMPUTE_CAPS + minimum VRAM + CUDA_VISIBLE_DEVICES handling)
+# instead of duplicating the capability list here.
+step "GPU arch (from the repo's support set)"
+ARCH_LINE=$(uv run python - <<'PY'
+import sys
+from src.llama_server import _MEGAKERNEL_COMPUTE_CAPS, _MEGAKERNEL_MIN_VRAM_MIB, _megakernel_gpu_info
+from src.megakernel_build import _arch_for_cap
+info = _megakernel_gpu_info()
+if not info:
+    sys.exit(f"no visible GPU in the megakernel set {sorted(_MEGAKERNEL_COMPUTE_CAPS)}, "
+             f"need >= {_MEGAKERNEL_MIN_VRAM_MIB} MiB VRAM (pin one with CUDA_VISIBLE_DEVICES)")
+print(_arch_for_cap(info[1]), info[0])
+PY
+)
+read -r ARCH GPU_SEL <<<"$ARCH_LINE"
+echo "selected $ARCH for GPU $GPU_SEL"
 
 LLAMA_DIR=llama.cpp
 step "llama.cpp (managed path: $LLAMA_DIR @ b10246; 15-25 min first time, minutes when cached)"
@@ -100,8 +108,12 @@ printf '{"arch": "%s"}\n' "$ARCH" > megakernel/.openjet-build.json
 ldd megakernel/libqwen38mk.so | grep -q "$LLAMA_DIR/build/bin" \
     || die "libqwen38mk.so did not link into $LLAMA_DIR/build/bin — check the LLAMA default"
 
-step "Turing/kernel regression gate"
-megakernel/bench/turing_check
+if [ "$ARCH" = sm_75 ]; then
+    step "Turing/kernel regression gate"
+    megakernel/bench/turing_check
+else
+    echo "turing_check skipped: it validates the sm_75 path only (ARCH=$ARCH)"
+fi
 
 CTX=$(uv run python - <<'PY'
 from src.hardware import detect_hardware_info
