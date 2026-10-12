@@ -8,11 +8,28 @@
 # Does: uv env -> llama.cpp (pinned b10246, Ninja Release) -> model download
 # (plain HTTPS, resumable) -> megakernel build linked to that llama.cpp ->
 # turing_check sanity gate -> prints the LAN API-server start command.
+# Long steps print their own progress plus an elapsed-time marker per step.
+# On a terminal it asks before the ~17 GB model download; --yes skips prompts.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
+ASSUME_YES=no
+case "${1:-}" in
+    -y|--yes) ASSUME_YES=yes ;;
+    -h|--help) sed -n '2,12p' "$0"; exit 0 ;;
+esac
+
 die() { echo "setup-server: $*" >&2; exit 1; }
-step() { echo; echo "==> $*"; }
+elapsed() { printf '%dm%02ds' $((SECONDS/60)) $((SECONDS%60)); }
+step() { echo; echo "==> [$(elapsed) elapsed] $*"; }
+confirm() {
+    # Consent on a terminal. With --yes, or when piped (no tty), proceed.
+    [ "$ASSUME_YES" = yes ] && return 0
+    [ -t 0 ] || return 0
+    local ans
+    read -r -p "$1 [Y/n] " ans
+    case "$ans" in [nN]*) return 1 ;; *) return 0 ;; esac
+}
 
 for bin in git cmake ninja nvidia-smi curl; do
     command -v "$bin" >/dev/null || die "$bin not found on PATH"
@@ -44,7 +61,7 @@ step "Python environment (uv, pinned 3.12)"
 uv sync
 
 LLAMA_DIR=llama.cpp
-step "llama.cpp (managed path: $LLAMA_DIR @ b10246)"
+step "llama.cpp (managed path: $LLAMA_DIR @ b10246; 15-25 min first time, minutes when cached)"
 if [ ! -d "$LLAMA_DIR/.git" ]; then
     git clone https://github.com/ggerganov/llama.cpp "$LLAMA_DIR"
 fi
@@ -57,23 +74,27 @@ fi
 GEN=(-G Ninja)
 if [ -f "$LLAMA_DIR/build/CMakeCache.txt" ]; then GEN=(); fi   # reuse an existing generator
 cmake "${GEN[@]}" -S "$LLAMA_DIR" -B "$LLAMA_DIR/build" \
-    -DGGML_CUDA=ON -DCMAKE_BUILD_TYPE=Release >/dev/null
-cmake --build "$LLAMA_DIR/build"
+    -DGGML_CUDA=ON -DCMAKE_BUILD_TYPE=Release
+echo "building the llama and llama-server targets..."
+cmake --build "$LLAMA_DIR/build" --target llama llama-server
 
 MODEL_DIR=models
 step "Model"
 eval "$(uv run python -c 'from src.config import QWEN38_27B_FILENAME as f, QWEN38_27B_URL as u; print(f"MODEL={f!r}"); print(f"URL={u!r}")')"
 MODEL_PATH="$MODEL_DIR/$MODEL"
-if [ ! -f "$MODEL_PATH" ]; then
+if [ -f "$MODEL_PATH" ]; then
+    echo "already present: $MODEL_PATH ($(du -h "$MODEL_PATH" | cut -f1))"
+elif confirm "Download $MODEL (~17 GB) into $MODEL_DIR/?"; then
     mkdir -p "$MODEL_DIR"
-    echo "downloading $MODEL (~17 GB, resumable plain HTTPS)..."
-    curl -L -C - --fail --retry 5 -o "$MODEL_PATH.part" "$URL"
+    echo "downloading from the commit-pinned URL (plain HTTPS; Ctrl-C then re-run to resume)..."
+    curl -L -C - --fail --retry 5 --progress-bar -o "$MODEL_PATH.part" "$URL"
     mv "$MODEL_PATH.part" "$MODEL_PATH"
+    echo "downloaded $(du -h "$MODEL_PATH" | cut -f1)"
 else
-    echo "already present: $MODEL_PATH"
+    die "declined; put $MODEL in $MODEL_DIR/ and re-run, or pass --yes"
 fi
 
-step "Megakernel ($ARCH, linked against $LLAMA_DIR)"
+step "Megakernel ($ARCH, linked against $LLAMA_DIR; ~10 min first time, seconds when cached)"
 make -C megakernel "NVCC=$NVCC" "ARCH=$ARCH" libqwen38mk.so qwen38_mk bench/turing_check
 printf '{"arch": "%s"}\n' "$ARCH" > megakernel/.openjet-build.json
 ldd megakernel/libqwen38mk.so | grep -q "$LLAMA_DIR/build/bin" \
@@ -92,7 +113,7 @@ PY
 )
 
 LAN_IP=$(ip -4 -o addr show scope global 2>/dev/null | awk -F'inet ' '{split($2,a,"/"); print a[1]; exit}' || true)
-step "Done. Start the API server on the local network with:"
+step "Done (total $(elapsed)). Start the API server on the local network with:"
 cat <<EOF
 
   uv run python megakernel/server/mk_server.py \\

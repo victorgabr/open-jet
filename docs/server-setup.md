@@ -7,6 +7,13 @@ project environment (`.venv`), and one interpreter pin (`.python-version`,
 Python 3.12). The project needs Python 3.12 or later because one dependency
 does not build on 3.10.
 
+Two install paths exist. The headless path runs one script,
+`scripts/setup_server.sh`, with no interactive UI. It performs every step this
+document describes in one pass and ends by printing the command that starts the
+API server on your local network. The wizard path is the default TUI flow. The
+sections below cover the wizard path first, then the headless script, then the
+manual steps.
+
 ## Prerequisites
 
 Before you start, the host must have:
@@ -40,6 +47,11 @@ uv run openjet setup
 
 `scripts/setup_server.sh` repeats every Install step without the wizard. You
 can run the script twice. A second run changes nothing.
+
+The script prints an elapsed-time marker and a time estimate for each step, and
+it streams the tool's own progress while a step runs. On a terminal the script
+asks before it downloads the ~17 GB model. Pass `--yes` to skip that question.
+When you pipe the script's output, it proceeds without asking.
 
 The script creates the uv environment, clones llama.cpp at `b10246`, and builds
 the `llama` and `llama-server` targets in Release mode with Ninja. It downloads
