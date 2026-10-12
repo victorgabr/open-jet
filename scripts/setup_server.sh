@@ -96,14 +96,14 @@ step "Done. Start the API server on the local network with:"
 cat <<EOF
 
   uv run python megakernel/server/mk_server.py \\
-      -m $MODEL_PATH --host 0.0.0.0 --port 18080 -c $CTX --kv auto
+      -m $MODEL_PATH --host 0.0.0.0 --port 8080 -c $CTX --kv auto
 
-  LAN endpoint:  http://${LAN_IP:-<this-host-ip>}:18080/v1/chat/completions
-  Health check:  curl -s http://127.0.0.1:18080/health
-  OpenAI client: base_url="http://${LAN_IP:-<this-host-ip>}:18080/v1"
+  LAN endpoint:  http://${LAN_IP:-<this-host-ip>}:8080/v1/chat/completions
+  Health check:  curl -s http://127.0.0.1:8080/health
+  OpenAI client: base_url="http://${LAN_IP:-<this-host-ip>}:8080/v1"
 
   --host 0.0.0.0 exposes the server on every interface: it has no auth, so
-  firewall port 18080 to your LAN (e.g. ufw allow from 192.168.0.0/16 to any port 18080)
+  firewall port 8080 to your LAN (e.g. ufw allow from 192.168.0.0/16 to any port 8080)
   or use --host <LAN address> to bind one interface only.
 
   Multi-GPU: pin with CUDA_VISIBLE_DEVICES=<GPU-UUID> (nvidia-smi -L).
