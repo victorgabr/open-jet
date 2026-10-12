@@ -49,6 +49,7 @@ command -v uv >/dev/null || die "uv not found; install it: https://docs.astral.s
 
 step "Python environment (uv, pinned 3.12)"
 uv sync
+source .venv/bin/activate
 
 # GPU arch: query the repo's own support set (src/llama_server.py
 # _MEGAKERNEL_COMPUTE_CAPS + minimum VRAM + CUDA_VISIBLE_DEVICES handling)
@@ -140,4 +141,7 @@ cat <<EOF
   or use --host <LAN address> to bind one interface only.
 
   Multi-GPU: pin with CUDA_VISIBLE_DEVICES=<GPU-UUID> (nvidia-smi -L).
+
+  Environment: the script activated .venv for its own steps.
+  To keep it active in this shell: source .venv/bin/activate
 EOF

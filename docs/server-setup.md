@@ -52,6 +52,8 @@ The script prints an elapsed-time marker and a time estimate for each step, and
 it streams the tool's own progress while a step runs. On a terminal the script
 asks before it downloads the ~17 GB model. Pass `--yes` to skip that question.
 When you pipe the script's output, it proceeds without asking.
+After the setup, the script prints how to keep the virtual environment active in
+your shell: `source .venv/bin/activate`.
 
 The script creates the uv environment, clones llama.cpp at `b10246`, and builds
 the `llama` and `llama-server` targets in Release mode with Ninja. It downloads
