@@ -534,6 +534,20 @@ def make_handler(srv):
     return H
 
 
+class _QuietHTTPServer(ThreadingHTTPServer):
+    """Long-running server: a client that drops the connection mid-request is not a fault.
+
+    socketserver prints a full traceback for any exception in a request thread;
+    connection resets (proxies, scanners, aborted streams) are routine, so they
+    are swallowed here. Every other error type still prints.
+    """
+
+    def handle_error(self, request, client_address):
+        if isinstance(sys.exc_info()[1], (ConnectionResetError, BrokenPipeError)):
+            return
+        super().handle_error(request, client_address)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("-m", "--model", required=True)
@@ -547,7 +561,7 @@ def main():
                     help="KV cache format (auto: q8_0 only when the fp16 cache does not fit)")
     args = ap.parse_args()
     srv = Server(args)
-    httpd = ThreadingHTTPServer((args.host, args.port), make_handler(srv))
+    httpd = _QuietHTTPServer((args.host, args.port), make_handler(srv))
     httpd.daemon_threads = True
     log(f"listening on http://{args.host}:{args.port}")
     try:
